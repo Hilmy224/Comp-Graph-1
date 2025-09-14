@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>4. Projection Matrix</title>
+</head>
+<body>
+    <h2>Konsep 4: Projection Matrix (View Space → Clip Space)</h2>
+    <canvas id="canvas" width="600" height="400" style="border: 1px solid black;"></canvas>
+    <br>
+    <div>
+        <button id="perspBtn" onclick="setProjection('perspective')">Perspective</button>
+        <button id="orthoBtn" onclick="setProjection('orthographic')">Orthographic</button>
+        <br><br>
+        FOV (Perspective only): <input type="range" id="fov" min="15" max="120" step="5" value="45">
+        <span id="fovVal">45°</span><br>
+        Rotate Scene: <input type="range" id="rotate" min="0" max="360" step="1" value="30">
+        <span id="rotVal">30°</span>
+    </div>
+    <p id="info">
+        Perspective: Objek jauh terlihat kecil (realistis)<br>
+        Orthographic: Ukuran tetap (untuk CAD/teknik)
+    </p>
+
+    <script>
+        const vsSource = `#version 300 es
+            in vec4 aPosition;
+            in vec4 aColor;
+            uniform mat4 uModelMatrix;
+            uniform mat4 uViewMatrix;
+            uniform mat4 uProjectionMatrix;
+            out vec4 vColor;
+            
+            void main() {
+                // MVP transformation
+                gl_Position = uProjectionMatrix * uViewMatrix * uModelMatrix * aPosition;
+                vColor = aColor;
+            }
+        `;
+
+        const fsSource = `#version 300 es
+            precision highp float;
+            in vec4 vColor;
+            out vec4 fragColor;
+            
+            void main() {
+                fragColor = vColor;
+            }
+        `;
+
+        let gl, program;
+        let modelMatrixLocation, viewMatrixLocation, projectionMatrixLocation;
+        let projectionType = 'perspective';
+
+        function createShader(gl, type, source) {
+            const shader = gl.createShader(type);
+            gl.shaderSource(shader, source);
+            gl.compileShader(shader);
+            return shader;
+        }
+
+        function createPerspectiveMatrix(fov, aspect, near, far) {
+            const f = 1.0 / Math.tan(fov / 2);
+            const rangeInv = 1 / (near - far);
+            
+            return new Float32Array([
+                f / aspect, 0, 0, 0,
+                0, f, 0, 0,
+                0, 0, (near + far) * rangeInv, -1,
+                0, 0, near * far * rangeInv * 2, 0
+            ]);
+        }
+
+        function createOrthographicMatrix(left, right, bottom, top, near, far) {
+            return new Float32Array([
+                2 / (right - left), 0, 0, 0,
+                0, 2 / (top - bottom), 0, 0,
+                0, 0, -2 / (far - near), 0,
+                -(right + left) / (right - left),
+                -(top + bottom) / (top - bottom),
+                -(far + near) / (far - near),
+                1
+            ]);
+        }
+
+        function createRotationMatrixY(angle) {
+            const c = Math.cos(angle);
+            const s = Math.sin(angle);
+            return new Float32Array([
+                c, 0, -s, 0,
+                0, 1, 0, 0,
+                s, 0, c, 0,
+                0, 0, 0, 1
+            ]);
+        }
+
+        function createTranslationMatrix(x, y, z) {
+            return new Float32Array([
+                1, 0, 0, 0,
+                0, 1, 0, 0,
+                0, 0, 1, 0,
+                x, y, z, 1
+            ]);
+        }
+
+        function multiplyMatrices(a, b) {
+            const result = new Float32Array(16);
+            for (let i = 0; i < 4; i++) {
+                for (let j = 0; j < 4; j++) {
+                    result[i * 4 + j] = 0;
+                    for (let k = 0; k < 4; k++) {
+                        result[i * 4 + j] += a[i * 4 + k] * b[k * 4 + j];
+                    }
+                }
+            }
+            return result;
+        }
+
+        function init() {
+            const canvas = document.getElementById('canvas');
+            gl = canvas.getContext('webgl2');
+            
+            const vertexShader = createShader(gl, gl.VERTEX_SHADER, vsSource);
+            const fragmentShader = createShader(gl, gl.FRAGMENT_SHADER, fsSource);
+            
+            program = gl.createProgram();
+            gl.attachShader(program, vertexShader);
+            gl.attachShader(program, fragmentShader);
+            gl.linkProgram(program);
+            
+            // Create 3 cubes at different depths
+            const cubeVertices = [
+                // Front face
+                -0.5, -0.5,  0.5,
+                 0.5, -0.5,  0.5,
+                 0.5,  0.5,  0.5,
+                -0.5, -0.5,  0.5,
+                 0.5,  0.5,  0.5,
+                -0.5,  0.5,  0.5,
+                // Back face
+                -0.5, -0.5, -0.5,
+                -0.5,  0.5, -0.5,
+                 0.5,  0.5, -0.5,
+                -0.5, -0.5, -0.5,
+                 0.5,  0.5, -0.5,
+                 0.5, -0.5, -0.5,
+                // Top face
+                -0.5,  0.5, -0.5,
+                -0.5,  0.5,  0.5,
+                 0.5,  0.5,  0.5,
+                -0.5,  0.5, -0.5,
+                 0.5,  0.5,  0.5,
+                 0.5,  0.5, -0.5,
+                // Bottom face
+                -0.5, -0.5, -0.5,
+                 0.5, -0.5, -0.5,
+                 0.5, -0.5,  0.5,
+                -0.5, -0.5, -0.5,
+                 0.5, -0.5,  0.5,
+                -0.5, -0.5,  0.5,
+                // Right face
+                 0.5, -0.5, -0.5,
+                 0.5,  0.5, -0.5,
+                 0.5,  0.5,  0.5,
+                 0.5, -0.5, -0.5,
+                 0.5,  0.5,  0.5,
+                 0.5, -0.5,  0.5,
+                // Left face
+                -0.5, -0.5, -0.5,
+                -0.5, -0.5,  0.5,
+                -0.5,  0.5,  0.5,
+                -0.5, -0.5, -0.5,
+                -0.5,  0.5,  0.5,
+                -0.5,  0.5, -0.5
+            ];
+            
+            // Scale down cube
+            const vertices = new Float32Array(cubeVertices.map(v => v * 0.3));
+            
+            // All red for simplicity
+            const colors = new Float32Array(36 * 4);
+            for (let i = 0; i < 36; i++) {
+                colors[i * 4] = 1.0;     // R
+                colors[i * 4 + 1] = 0.2;  // G
+                colors[i * 4 + 2] = 0.2;  // B
+                colors[i * 4 + 3] = 1.0;  // A
+            }
+            
+            // Position buffer
+            const positionBuffer = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
+            
+            const aPosition = gl.getAttribLocation(program, 'aPosition');
+            gl.enableVertexAttribArray(aPosition);
+            gl.vertexAttribPointer(aPosition, 3, gl.FLOAT, false, 0, 0);
+            
+            // Color buffer
+            const colorBuffer = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, colors, gl.STATIC_DRAW);
+            
+            const aColor = gl.getAttribLocation(program, 'aColor');
+            gl.enableVertexAttribArray(aColor);
+            gl.vertexAttribPointer(aColor, 4, gl.FLOAT, false, 0, 0);
+            
+            modelMatrixLocation = gl.getUniformLocation(program, 'uModelMatrix');
+            viewMatrixLocation = gl.getUniformLocation(program, 'uViewMatrix');
+            projectionMatrixLocation = gl.getUniformLocation(program, 'uProjectionMatrix');
+            
+            // Event listeners
+            document.getElementById('fov').addEventListener('input', updateAndDraw);
+            document.getElementById('rotate').addEventListener('input', updateAndDraw);
+            
+            gl.enable(gl.DEPTH_TEST);
+            updateAndDraw();
+        }
+
+        function setProjection(type) {
+            projectionType = type;
+            document.getElementById('perspBtn').style.background = 
+                type === 'perspective' ? '#4CAF50' : '#ccc';
+            document.getElementById('orthoBtn').style.background = 
+                type === 'orthographic' ? '#4CAF50' : '#ccc';
+            updateAndDraw();
+        }
+
+        function updateAndDraw() {
+            const fov = parseFloat(document.getElementById('fov').value) * Math.PI / 180;
+            const rotation = parseFloat(document.getElementById('rotate').value) * Math.PI / 180;
+            
+            document.getElementById('fovVal').textContent = document.getElementById('fov').value + '°';
+            document.getElementById('rotVal').textContent = document.getElementById('rotate').value + '°';
+            
+            // Create view matrix (fixed camera)
+            const viewMatrix = new Float32Array([
+                1, 0, 0, 0,
+                0, 1, 0, 0,
+                0, 0, 1, 0,
+                0, 0, -3, 1
+            ]);
+            
+            // Create projection matrix
+            const aspect = gl.canvas.width / gl.canvas.height;
+            let projectionMatrix;
+            
+            if (projectionType === 'perspective') {
+                projectionMatrix = createPerspectiveMatrix(fov, aspect, 0.1, 100);
+            } else {
+                const size = 2;
+                projectionMatrix = createOrthographicMatrix(
+                    -size * aspect, size * aspect,
+                    -size, size,
+                    0.1, 100
+                );
+            }
+            
+            gl.clearColor(0.9, 0.9, 0.9, 1.0);
+            gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+            
+            gl.useProgram(program);
+            gl.uniformMatrix4fv(viewMatrixLocation, false, viewMatrix);
+            gl.uniformMatrix4fv(projectionMatrixLocation, false, projectionMatrix);
+            
+            // Draw 3 cubes at different positions and depths
+            const positions = [
+                [-1.5, 0, 0],    // Left
+                [0, 0, -1],      // Center back
+                [1.5, 0, -2]     // Right far
+            ];
+            
+            for (let i = 0; i < positions.length; i++) {
+                const translationMatrix = createTranslationMatrix(
+                    positions[i][0], positions[i][1], positions[i][2]
+                );
+                const rotationMatrix = createRotationMatrixY(rotation);
+                const modelMatrix = multiplyMatrices(translationMatrix, rotationMatrix);
+                
+                gl.uniformMatrix4fv(modelMatrixLocation, false, modelMatrix);
+                gl.drawArrays(gl.TRIANGLES, 0, 36);
+            }
+        }
+
+        init();
+        setProjection('perspective');
+    </script>
+</body>
+</html>

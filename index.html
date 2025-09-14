@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <title>WebGL2 • MVP • Fullscreen • Camera Controls</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+        :root { color-scheme: dark; }
+        html, body {
+            margin: 0; padding: 0; height: 100%; width: 100%;
+            background: #0e1116; overflow: hidden;
+            font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial;
+            color: #e6edf3;
+        }
+        #glCanvas {
+            position: fixed; inset: 0;
+            width: 100vw; height: 100vh; display: block; background: #000;
+        }
+        .panel {
+            position: fixed; top: 12px; left: 12px;
+            background: rgba(20, 24, 31, 0.85);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 12px; padding: 12px 14px; backdrop-filter: blur(4px);
+            min-width: 300px; max-width: 300px;
+            box-shadow: 0 8px 30px rgba(0,0,0,0.35);
+            user-select: none;
+        }
+        .panel h2 { margin: 0 0 8px; font-size: 14px; letter-spacing: .2px; color: #9db2c8; }
+        .row { display: grid; grid-template-columns: 72px 1fr 72px; gap: 8px; align-items: center; margin: 8px 0; }
+        .row label { font-size: 12px; color: #a7b2bf; }
+        .row input[type="range"] { width: 100%; }
+        .row input[type="number"] {
+            width: 100%; padding: 4px 6px; background: #0f141b; border: 1px solid #2b3542; color: #e6edf3; border-radius: 8px;
+        }
+        .buttons { display: flex; gap: 8px; margin-top: 6px; }
+        button {
+            background: #1b2735; color: #c8d2df; border: 1px solid #2b3542; border-radius: 10px; padding: 6px 10px;
+            cursor: pointer;
+        }
+        button:hover { background: #233141; }
+        .small { font-size: 11px; color: #8ea2b6; margin-top: 6px; }
+    </style>
+</head>
+<body>
+<canvas id="glCanvas" aria-label="WebGL2 canvas"></canvas>
+
+<div class="panel" role="group" aria-label="Camera Controls">
+    <h2>Camera</h2>
+
+    <div class="row">
+        <label for="cxRange">Cam X</label>
+        <input id="cxRange" type="range" min="-2" max="2" step="0.01" value="0" />
+        <input id="cx" type="number" step="0.01" value="0" />
+    </div>
+
+    <div class="row">
+        <label for="cyRange">Cam Y</label>
+        <input id="cyRange" type="range" min="-2" max="2" step="0.01" value="0" />
+        <input id="cy" type="number" step="0.01" value="0" />
+    </div>
+
+    <div class="row">
+        <label for="fovRange">FOV°</label>
+        <input id="fovRange" type="range" min="30" max="120" step="1" value="60" />
+        <input id="fov" type="number" step="1" value="60" />
+    </div>
+
+    <div class="row">
+        <label for="camzRange">Cam Z</label>
+        <input id="camzRange" type="range" min="0.5" max="10" step="0.01" value="3" />
+        <input id="camz" type="number" step="0.01" value="3" />
+    </div>
+
+    <div class="row">
+        <label for="zoomRange">Zoom</label>
+        <input id="zoomRange" type="range" min="0.25" max="4" step="0.01" value="1" />
+        <input id="zoom" type="number" step="0.01" value="1" />
+    </div>
+
+    <div class="row">
+        <label for="angRange">Angle°</label>
+        <input id="angRange" type="range" min="-180" max="180" step="1" value="0" />
+        <input id="angle" type="number" step="1" value="0" />
+    </div>
+
+    <div class="row" style="grid-template-columns: 1fr auto auto;">
+        <label>Projection</label>
+        <label><input id="modeOrtho" type="radio" name="projMode" checked /> Ortho</label>
+        <label><input id="modePersp" type="radio" name="projMode" /> Persp</label>
+    </div>
+
+    <div class="buttons">
+        <button id="reset" type="button">Reset</button>
+    </div>
+
+    <details style="margin-top:8px">
+        <summary>Quick tips</summary>
+        <ul style="margin:8px 0 0 16px; line-height:1.3">
+            <li>Ortho: use <b>Zoom</b>; no size change with distance.</li>
+            <li>Perspective: <b>FOV</b> + <b>Cam Z</b> control parallax.</li>
+            <li><code>gl_Position = P * V * (M * pos)</code>.</li>
+            <li><code>TRS = T * (R * S)</code> with column vectors.</li>        
+            <li>DPR-aware resize keeps pixels sharp.</li>
+            <li>The scene only render when there is change.</li>
+        </ul>
+    </details>
+
+</div>
+
+<script defer src="main.js"></script>
+</body>
+</html>

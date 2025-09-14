@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>3. View Matrix - Camera</title>
+</head>
+<body>
+    <h2>Konsep 3: View Matrix (World Space → View Space)</h2>
+    <canvas id="canvas" width="600" height="400" style="border: 1px solid black;"></canvas>
+    <br>
+    <div>
+        Camera X: <input type="range" id="camX" min="-2" max="2" step="0.1" value="0">
+        <span id="camXVal">0</span><br>
+        Camera Y: <input type="range" id="camY" min="-2" max="2" step="0.1" value="0">
+        <span id="camYVal">0</span><br>
+        Camera Z: <input type="range" id="camZ" min="1" max="5" step="0.1" value="2">
+        <span id="camZVal">2</span>
+    </div>
+    <p>
+        View Matrix = Inverse(Camera Transform)<br>
+        Kamera tetap di origin, dunia yang bergerak
+    </p>
+
+    <script>
+        const vsSource = `#version 300 es
+            in vec4 aPosition;
+            in vec4 aColor;
+            uniform mat4 uViewMatrix;
+            uniform mat4 uProjectionMatrix;
+            out vec4 vColor;
+            
+            void main() {
+                gl_Position = uProjectionMatrix * uViewMatrix * aPosition;
+                vColor = aColor;
+            }
+        `;
+
+        const fsSource = `#version 300 es
+            precision highp float;
+            in vec4 vColor;
+            out vec4 fragColor;
+            
+            void main() {
+                fragColor = vColor;
+            }
+        `;
+
+        let gl, program, viewMatrixLocation, projectionMatrixLocation;
+
+        function createShader(gl, type, source) {
+            const shader = gl.createShader(type);
+            gl.shaderSource(shader, source);
+            gl.compileShader(shader);
+            return shader;
+        }
+
+        function createPerspectiveMatrix(fov, aspect, near, far) {
+            const f = 1.0 / Math.tan(fov / 2);
+            const rangeInv = 1 / (near - far);
+            
+            return new Float32Array([
+                f / aspect, 0, 0, 0,
+                0, f, 0, 0,
+                0, 0, (near + far) * rangeInv, -1,
+                0, 0, near * far * rangeInv * 2, 0
+            ]);
+        }
+
+        function createLookAtMatrix(eyeX, eyeY, eyeZ, centerX, centerY, centerZ, upX, upY, upZ) {
+            // Calculate forward vector
+            let fx = centerX - eyeX;
+            let fy = centerY - eyeY;
+            let fz = centerZ - eyeZ;
+            
+            // Normalize forward
+            const fLength = Math.sqrt(fx * fx + fy * fy + fz * fz);
+            fx /= fLength;
+            fy /= fLength;
+            fz /= fLength;
+            
+            // Calculate right vector (cross product of forward and up)
+            let rx = fy * upZ - fz * upY;
+            let ry = fz * upX - fx * upZ;
+            let rz = fx * upY - fy * upX;
+            
+            // Normalize right
+            const rLength = Math.sqrt(rx * rx + ry * ry + rz * rz);
+            rx /= rLength;
+            ry /= rLength;
+            rz /= rLength;
+            
+            // Calculate actual up (cross product of right and forward)
+            const ux = ry * fz - rz * fy;
+            const uy = rz * fx - rx * fz;
+            const uz = rx * fy - ry * fx;
+            
+            return new Float32Array([
+                rx, ux, -fx, 0,
+                ry, uy, -fy, 0,
+                rz, uz, -fz, 0,
+                -(rx * eyeX + ry * eyeY + rz * eyeZ),
+                -(ux * eyeX + uy * eyeY + uz * eyeZ),
+                (fx * eyeX + fy * eyeY + fz * eyeZ),
+                1
+            ]);
+        }
+
+        function init() {
+            const canvas = document.getElementById('canvas');
+            gl = canvas.getContext('webgl2');
+            
+            const vertexShader = createShader(gl, gl.VERTEX_SHADER, vsSource);
+            const fragmentShader = createShader(gl, gl.FRAGMENT_SHADER, fsSource);
+            
+            program = gl.createProgram();
+            gl.attachShader(program, vertexShader);
+            gl.attachShader(program, fragmentShader);
+            gl.linkProgram(program);
+            
+            // Create multiple objects to show camera movement
+            const vertices = new Float32Array([
+                // Object 1 (red) - center
+                -0.2, -0.2, 0.0,
+                 0.2, -0.2, 0.0,
+                 0.0,  0.2, 0.0,
+                
+                // Object 2 (green) - left
+                -0.8, -0.2, -0.5,
+                -0.4, -0.2, -0.5,
+                -0.6,  0.2, -0.5,
+                
+                // Object 3 (blue) - right
+                 0.4, -0.2, 0.5,
+                 0.8, -0.2, 0.5,
+                 0.6,  0.2, 0.5
+            ]);
+            
+            const colors = new Float32Array([
+                // Red
+                1.0, 0.0, 0.0, 1.0,
+                1.0, 0.0, 0.0, 1.0,
+                1.0, 0.0, 0.0, 1.0,
+                // Green
+                0.0, 1.0, 0.0, 1.0,
+                0.0, 1.0, 0.0, 1.0,
+                0.0, 1.0, 0.0, 1.0,
+                // Blue
+                0.0, 0.0, 1.0, 1.0,
+                0.0, 0.0, 1.0, 1.0,
+                0.0, 0.0, 1.0, 1.0
+            ]);
+            
+            // Position buffer
+            const positionBuffer = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
+            
+            const aPosition = gl.getAttribLocation(program, 'aPosition');
+            gl.enableVertexAttribArray(aPosition);
+            gl.vertexAttribPointer(aPosition, 3, gl.FLOAT, false, 0, 0);
+            
+            // Color buffer
+            const colorBuffer = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, colors, gl.STATIC_DRAW);
+            
+            const aColor = gl.getAttribLocation(program, 'aColor');
+            gl.enableVertexAttribArray(aColor);
+            gl.vertexAttribPointer(aColor, 4, gl.FLOAT, false, 0, 0);
+            
+            viewMatrixLocation = gl.getUniformLocation(program, 'uViewMatrix');
+            projectionMatrixLocation = gl.getUniformLocation(program, 'uProjectionMatrix');
+            
+            // Event listeners
+            document.getElementById('camX').addEventListener('input', updateAndDraw);
+            document.getElementById('camY').addEventListener('input', updateAndDraw);
+            document.getElementById('camZ').addEventListener('input', updateAndDraw);
+            
+            gl.enable(gl.DEPTH_TEST);
+            updateAndDraw();
+        }
+
+        function updateAndDraw() {
+            const camX = parseFloat(document.getElementById('camX').value);
+            const camY = parseFloat(document.getElementById('camY').value);
+            const camZ = parseFloat(document.getElementById('camZ').value);
+            
+            document.getElementById('camXVal').textContent = camX;
+            document.getElementById('camYVal').textContent = camY;
+            document.getElementById('camZVal').textContent = camZ;
+            
+            // Create view matrix
+            const viewMatrix = createLookAtMatrix(
+                camX, camY, camZ,  // eye position
+                0, 0, 0,           // look at origin
+                0, 1, 0            // up vector
+            );
+            
+            // Create projection matrix
+            const aspect = gl.canvas.width / gl.canvas.height;
+            const projectionMatrix = createPerspectiveMatrix(
+                45 * Math.PI / 180,  // fov
+                aspect,
+                0.1,   // near
+                100    // far
+            );
+            
+            gl.clearColor(0.9, 0.9, 0.9, 1.0);
+            gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+            
+            gl.useProgram(program);
+            gl.uniformMatrix4fv(viewMatrixLocation, false, viewMatrix);
+            gl.uniformMatrix4fv(projectionMatrixLocation, false, projectionMatrix);
+            gl.drawArrays(gl.TRIANGLES, 0, 9);
+        }
+
+        init();
+    </script>
+</body>
+</html>

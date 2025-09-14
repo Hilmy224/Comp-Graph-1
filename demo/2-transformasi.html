@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>2. Transformasi - Model Matrix</title>
+</head>
+<body>
+    <h2>Konsep 2: Model Matrix (Local Space → World Space)</h2>
+    <canvas id="canvas" width="600" height="400" style="border: 1px solid black;"></canvas>
+    <br>
+    <div>
+        Translation X: <input type="range" id="tx" min="-1" max="1" step="0.1" value="0">
+        <span id="txVal">0</span><br>
+        Translation Y: <input type="range" id="ty" min="-1" max="1" step="0.1" value="0">
+        <span id="tyVal">0</span><br>
+        Rotation: <input type="range" id="rot" min="0" max="360" step="1" value="0">
+        <span id="rotVal">0</span><br>
+        Scale: <input type="range" id="scale" min="0.1" max="2" step="0.1" value="1">
+        <span id="scaleVal">1</span>
+    </div>
+    <p>Model Matrix = Translation × Rotation × Scale</p>
+
+    <script>
+        const vsSource = `#version 300 es
+            in vec4 aPosition;
+            uniform mat4 uModelMatrix;  // Model transformation
+            
+            void main() {
+                gl_Position = uModelMatrix * aPosition;
+            }
+        `;
+
+        const fsSource = `#version 300 es
+            precision highp float;
+            out vec4 fragColor;
+            
+            void main() {
+                fragColor = vec4(0.0, 0.5, 1.0, 1.0);  // Biru
+            }
+        `;
+
+        let gl, program, modelMatrixLocation;
+
+        function createShader(gl, type, source) {
+            const shader = gl.createShader(type);
+            gl.shaderSource(shader, source);
+            gl.compileShader(shader);
+            return shader;
+        }
+
+        // Matrix helper functions
+        function createIdentityMatrix() {
+            return new Float32Array([
+                1, 0, 0, 0,
+                0, 1, 0, 0,
+                0, 0, 1, 0,
+                0, 0, 0, 1
+            ]);
+        }
+
+        function createTranslationMatrix(tx, ty, tz) {
+            return new Float32Array([
+                1, 0, 0, 0,
+                0, 1, 0, 0,
+                0, 0, 1, 0,
+                tx, ty, tz, 1
+            ]);
+        }
+
+        function createRotationMatrixZ(angleInRadians) {
+            const c = Math.cos(angleInRadians);
+            const s = Math.sin(angleInRadians);
+            return new Float32Array([
+                c, s, 0, 0,
+                -s, c, 0, 0,
+                0, 0, 1, 0,
+                0, 0, 0, 1
+            ]);
+        }
+
+        function createScaleMatrix(sx, sy, sz) {
+            return new Float32Array([
+                sx, 0, 0, 0,
+                0, sy, 0, 0,
+                0, 0, sz, 0,
+                0, 0, 0, 1
+            ]);
+        }
+
+        function multiplyMatrices(a, b) {
+            const result = new Float32Array(16);
+            for (let i = 0; i < 4; i++) {
+                for (let j = 0; j < 4; j++) {
+                    result[i * 4 + j] = 0;
+                    for (let k = 0; k < 4; k++) {
+                        result[i * 4 + j] += a[i * 4 + k] * b[k * 4 + j];
+                    }
+                }
+            }
+            return result;
+        }
+
+        function init() {
+            const canvas = document.getElementById('canvas');
+            gl = canvas.getContext('webgl2');
+            
+            const vertexShader = createShader(gl, gl.VERTEX_SHADER, vsSource);
+            const fragmentShader = createShader(gl, gl.FRAGMENT_SHADER, fsSource);
+            
+            program = gl.createProgram();
+            gl.attachShader(program, vertexShader);
+            gl.attachShader(program, fragmentShader);
+            gl.linkProgram(program);
+            
+            // Square vertices
+            const vertices = new Float32Array([
+                -0.3, -0.3, 0.0,
+                 0.3, -0.3, 0.0,
+                 0.3,  0.3, 0.0,
+                -0.3, -0.3, 0.0,
+                 0.3,  0.3, 0.0,
+                -0.3,  0.3, 0.0
+            ]);
+            
+            const buffer = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+            gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
+            
+            const aPosition = gl.getAttribLocation(program, 'aPosition');
+            gl.enableVertexAttribArray(aPosition);
+            gl.vertexAttribPointer(aPosition, 3, gl.FLOAT, false, 0, 0);
+            
+            modelMatrixLocation = gl.getUniformLocation(program, 'uModelMatrix');
+            
+            // Event listeners
+            document.getElementById('tx').addEventListener('input', updateAndDraw);
+            document.getElementById('ty').addEventListener('input', updateAndDraw);
+            document.getElementById('rot').addEventListener('input', updateAndDraw);
+            document.getElementById('scale').addEventListener('input', updateAndDraw);
+            
+            updateAndDraw();
+        }
+
+        function updateAndDraw() {
+            const tx = parseFloat(document.getElementById('tx').value);
+            const ty = parseFloat(document.getElementById('ty').value);
+            const rot = parseFloat(document.getElementById('rot').value) * Math.PI / 180;
+            const scale = parseFloat(document.getElementById('scale').value);
+            
+            document.getElementById('txVal').textContent = tx;
+            document.getElementById('tyVal').textContent = ty;
+            document.getElementById('rotVal').textContent = document.getElementById('rot').value + '°';
+            document.getElementById('scaleVal').textContent = scale;
+            
+            // Build model matrix: M = T × R × S
+            const translationMatrix = createTranslationMatrix(tx, ty, 0);
+            const rotationMatrix = createRotationMatrixZ(rot);
+            const scaleMatrix = createScaleMatrix(scale, scale, scale);
+            
+            let modelMatrix = multiplyMatrices(translationMatrix, rotationMatrix);
+            modelMatrix = multiplyMatrices(modelMatrix, scaleMatrix);
+            
+            gl.clearColor(0.9, 0.9, 0.9, 1.0);
+            gl.clear(gl.COLOR_BUFFER_BIT);
+            
+            gl.useProgram(program);
+            gl.uniformMatrix4fv(modelMatrixLocation, false, modelMatrix);
+            gl.drawArrays(gl.TRIANGLES, 0, 6);
+        }
+
+        init();
+    </script>
+</body>
+</html>
