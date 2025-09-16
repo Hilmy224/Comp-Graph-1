@@ -108,7 +108,7 @@ function initProgram(){
     gl.useProgram(program);
     state.program = program;
     state.uniforms = {
-        color:     gl.getUniformLocation(program, "uColor"),
+        color:     gl.getUniformLocation(program, "uColor"),//Dont really need this now
         model:     gl.getUniformLocation(program, "uModel"),
         viewProj:  gl.getUniformLocation(program, "uViewProj"),
         pointSize: gl.getUniformLocation(program, "uPointSize"),
@@ -203,7 +203,7 @@ function makeVAO(verts, strides=5){
 }
 
 //HERE
-function makePolygonVAO(segments=64,center_vert_color = [1,1,1],edge_vert_color=[0.5,0.5,0.5]){
+function makePolygonVAO(segments=64,center_vert_color = [1,1,1],edge_vert_color=[0.2, 0.3, 0.6]){
     const verts = [];
     for (let i=0;i<segments;i++){
         const t = (i/segments) * Math.PI * 2.0; //Angle
@@ -233,6 +233,18 @@ function makePolygonVAO(segments=64,center_vert_color = [1,1,1],edge_vert_color=
     return makeVAO(verts);
 }
 
+function makeOutlineCircle(segments=64, color= [1,1,1]){
+    const verts = [];
+    for (let i=0;i<segments;i++){
+        const t = (i/segments) * Math.PI * 2.0; //Angle
+        const x = Math.cos(t);
+        const y = Math.sin(t);
+
+        verts.push(x,y,...color)
+    }
+    return makeVAO(verts)
+}
+
 const customColors = {
     sun: { center: [1, 1, 0.8], edge: [1, 0.6, 0.2] },
     planet1: [0.655, 0.655, 0.65],
@@ -240,13 +252,23 @@ const customColors = {
     planet3: [0.188, 0.427, 0.941],
     planet4: { center: [0.886, 0.341, 0.169], edge: [0.6, 0.2, 0.1] }
 };
+
+//Helper function cuz I forgot to acocuht for line and points in VAO
+function forLineVAO(positions, color = [1,1,1]) {
+    const verts = [];
+    for (let i = 0; i < positions.length; i += 2) {
+        verts.push(positions[i], positions[i+1], ...color);
+    }
+    return makeVAO(verts);
+}
+
 function initGeometry(){
 
-    state.geo.point    = makeVAO([0,0]);
-    state.geo.line     = makeVAO([-0.5,0, 0.5,0]);
+    state.geo.point    = forLineVAO([0,0]);
+    state.geo.line     = forLineVAO([-0.5,0, 0.5,0]);
     state.geo.tri      = makePolygonVAO(3);
     state.geo.square   = makePolygonVAO(4);
-    state.geo.circle   = makePolygonVAO(96);
+    state.geo.circle   = makeOutlineCircle(96,[1,1,1])
     state.geo.hexagon  = makePolygonVAO(6);
 
     //Make custom
@@ -254,7 +276,7 @@ function initGeometry(){
     state.geo.planet1=makePolygonVAO(96,customColors.planet1)
     state.geo.planet2=makePolygonVAO(96,customColors.planet2)
     state.geo.planet3=makePolygonVAO(96,customColors.planet3)
-    state.geo.planet4=makePolygonVAO(96,customColors.planet4)
+    state.geo.planet4=makePolygonVAO(96,customColors.planet4.center, customColors.planet4.edge)
 }
 
 // ========== Draw helper ==========
@@ -384,6 +406,7 @@ function render(){
         model: mat4TRS(px, py, 0.9, 0.0, 0.15, 0.15, ),
     });
 
+    //Point Stars
     for (let i = 0; i < 500; i++) {
         var [px, py] = random_points(-4,4)
         draw({
