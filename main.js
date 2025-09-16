@@ -59,12 +59,17 @@ const vsSource = `#version 300 es
 precision highp float;
 
 layout(location = 0) in vec2 aPosition;
+layout(location = 1) in vec3 aColor;
 
 uniform mat4 uModel;
 uniform mat4 uViewProj;
 uniform float uPointSize;
 
+
+out vec3 fragmentColor;
+
 void main() {
+  fragmentColor = aColor;
   vec4 world = uModel * vec4(aPosition, 0.0, 1.0);
   gl_Position = uViewProj * world;
   gl_PointSize = uPointSize;
@@ -72,9 +77,13 @@ void main() {
 
 const fsSource = `#version 300 es
 precision mediump float;
-uniform vec4 uColor;
-out vec4 fragColor;
-void main(){ fragColor = uColor; }`;
+
+in vec3 fragmentColor;
+out vec4 outputColor;
+
+void main() {
+  outputColor = vec4(fragmentColor, 1.0);
+}`;
 
 // ========== GL helpers ==========
 function compile(type, src){
@@ -105,7 +114,6 @@ function initProgram(){
         pointSize: gl.getUniformLocation(program, "uPointSize"),
     };
 }
-
 // ========== Minimal mat4 (column-major; column vectors) ==========
 const idx4 = (r,c)=>c*4+r;
 
@@ -179,37 +187,80 @@ function mat4View(cx, cy, cz, angZ){
 }
 
 // ========== Geometry (VAO) ==========
-function makeVAO(verts){
+//HERE gotta fix array objects
+function makeVAO(verts, strides=5){
     const vao = gl.createVertexArray(); gl.bindVertexArray(vao);
     const vbo = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(verts), gl.STATIC_DRAW);
     gl.enableVertexAttribArray(0);
-    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, strides*4, 0);
+
+    //adding new color mappings
+    gl.enableVertexAttribArray(1);
+    gl.vertexAttribPointer(1, 3, gl.FLOAT, false, strides*4, 2*4); //pass the 2 value first offest
     gl.bindVertexArray(null);
-    return { vao, count: verts.length / 2, indexed: false };
+    return { vao, count: verts.length / strides, indexed: false };
 }
-function makePolygonVAO(segments=64){
+
+//HERE
+function makePolygonVAO(segments=64,center_vert_color = [1,1,1],edge_vert_color=[0.5,0.5,0.5]){
     const verts = [];
     for (let i=0;i<segments;i++){
-        const t = (i/segments) * Math.PI * 2.0;
-        verts.push(Math.cos(t), Math.sin(t));
+        const t = (i/segments) * Math.PI * 2.0; //Angle
+        const t1 = ((i+1)/segments) * Math.PI * 2.0;
+        const x1 = Math.cos(t);
+        const y1 = Math.sin(t);
+        const x2 = Math.cos(t1);
+        const y2 = Math.sin(t1);
+
+        // Center vertex that starts at 0 0
+        verts.push(
+        // Position (x, y)
+        0, 0,
+        // Color (r, g, b)
+        ...center_vert_color
+        );
+        // The other two vertices of the triangle
+        verts.push(
+        x1, y1,
+        ...edge_vert_color
+        );
+        verts.push(
+        x2, y2,
+        ...edge_vert_color
+        );
     }
     return makeVAO(verts);
 }
 
+const customColors = {
+    sun: { center: [1, 1, 0.8], edge: [1, 0.6, 0.2] },
+    planet1: [0.655, 0.655, 0.65],
+    planet2: [0.114, 0.729, 0.408],
+    planet3: [0.188, 0.427, 0.941],
+    planet4: { center: [0.886, 0.341, 0.169], edge: [0.6, 0.2, 0.1] }
+};
 function initGeometry(){
+
     state.geo.point    = makeVAO([0,0]);
     state.geo.line     = makeVAO([-0.5,0, 0.5,0]);
     state.geo.tri      = makePolygonVAO(3);
     state.geo.square   = makePolygonVAO(4);
     state.geo.circle   = makePolygonVAO(96);
     state.geo.hexagon  = makePolygonVAO(6);
+
+    //Make custom
+    state.geo.sun = makePolygonVAO(96,customColors.sun.center, customColors.sun.edge)
+    state.geo.planet1=makePolygonVAO(96,customColors.planet1)
+    state.geo.planet2=makePolygonVAO(96,customColors.planet2)
+    state.geo.planet3=makePolygonVAO(96,customColors.planet3)
+    state.geo.planet4=makePolygonVAO(96,customColors.planet4)
 }
 
 // ========== Draw helper ==========
-function draw({ vaoObj, mode, color, model = mat4Identity(), pointSize = 1 }){
+function draw({ vaoObj, mode, model = mat4Identity(), pointSize = 1 }){
     const { uniforms } = state;
-    gl.uniform4fv(uniforms.color, color);
+    //gl.uniform4fv(uniforms.color, color); //HERE
     gl.uniformMatrix4fv(uniforms.model, false, model);
     gl.uniform1f(uniforms.pointSize, pointSize);
 
@@ -265,9 +316,8 @@ function render(){
 
     //Sun
     draw({
-        vaoObj: state.geo.circle,
+        vaoObj: state.geo.sun,
         mode: gl.TRIANGLE_FAN,
-        color: [1, 0.918, 0.498,1],
         model: mat4TRS(0, 0, 0, 0.0, 0.12, 0.12, 0.12),
     });
 
@@ -279,7 +329,6 @@ function render(){
     draw({
         vaoObj: state.geo.circle,
         mode: gl.LINE_LOOP,
-        color: [1.0, 1, 1, 0.8],
         model: mat4TRS(0, 0, 0, 0.0, P1,P1,P1),
     });
 
@@ -287,7 +336,6 @@ function render(){
     draw({
         vaoObj: state.geo.circle,
         mode: gl.LINE_LOOP,
-        color: [1.0, 1, 1, 0.8],
         model: mat4TRS(0, 0, 0, 0.0, P2,P2,P2),
     });
 
@@ -295,7 +343,6 @@ function render(){
     draw({
         vaoObj: state.geo.circle,
         mode: gl.LINE_LOOP,
-        color: [1.0, 1, 1, 0.8],
         model: mat4TRS(0, 0, 0, 0.0, P3,P3,P3),
     });
 
@@ -303,42 +350,37 @@ function render(){
     draw({
         vaoObj: state.geo.circle,
         mode: gl.LINE_LOOP,
-        color: [1.0, 1, 1, 0.8],
         model: mat4TRS(0, 0, 0, 0.0, P4,P4,P4),
     });
 
     //Planet 1
     var [px, py] = within_orbit(P1)
     draw({
-        vaoObj: state.geo.circle,
+        vaoObj: state.geo.planet1,
         mode: gl.TRIANGLE_FAN,
-        color: [0.655, 0.655, 0.65,1 ],
         model: mat4TRS(px, py, 0.4, 0.0, 0.06, 0.06, 1),
     });
 
     //Planet 2
     var [px, py] = within_orbit(P2)
     draw({
-        vaoObj: state.geo.circle,
+        vaoObj: state.geo.planet2,
         mode: gl.TRIANGLE_FAN,
-        color: [0.114, 0.729, 0.408,1],
         model: mat4TRS(px, py, 0.6, 0.5, 0.07, 0.07, 1),
     });
     //Planet 3
     var [px, py] = within_orbit(P3)
     draw({
-        vaoObj: state.geo.circle,
+        vaoObj: state.geo.planet3,
         mode: gl.TRIANGLE_FAN,
-        color: [0.188, 0.427, 0.941,1],
         model: mat4TRS(px, py, 0.8, 0.0, 0.09, 0.09, 1),
     });
 
     //Planet 4
     var [px, py] = within_orbit(P4)
     draw({
-        vaoObj: state.geo.circle,
+        vaoObj: state.geo.planet4,
         mode: gl.TRIANGLE_FAN,
-        color: [0.886, 0.341, 0.169,1],
         model: mat4TRS(px, py, 0.9, 0.0, 0.15, 0.15, ),
     });
 
